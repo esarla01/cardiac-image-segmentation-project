@@ -1,8 +1,10 @@
+import random
 import torch
 from torch.utils.data.dataset import Dataset
 import numpy as np
 import os
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
 from tqdm import tqdm
 
 def norm_img(image, MIN_BOUND=0., MAX_BOUND=2000.):
@@ -15,10 +17,11 @@ readvdnames = lambda x: open(x).read().rstrip().split('\n')
 
 
 class WHSDataset_2D_scale_partSeries(Dataset):
-    def __init__(self, image_multidir, crop_d=32, stride=5):
+    def __init__(self, image_multidir, crop_d=32, stride=5, augment=False):
         super(WHSDataset_2D_scale_partSeries, self).__init__()
 
         self.image_paths = list()
+        self.augment = augment
 
         for image_dir in image_multidir:
             for filename3D in os.listdir(image_dir):
@@ -62,6 +65,15 @@ class WHSDataset_2D_scale_partSeries(Dataset):
         image_serial = list()
         label_serial = list()
 
+        # Sample augmentation parameters once per sequence so all slices
+        # receive the same spatial transform (required for LSTM consistency)
+        if self.augment:
+            angle     = random.uniform(-20, 20)
+            translate = [random.uniform(-0.1, 0.1) * 224,
+                         random.uniform(-0.1, 0.1) * 224]
+            scale     = random.uniform(1 / 1.2, 1.2)
+            shear     = random.uniform(-3, 3)
+
         for image_path in self.image_paths[index]:
             filename = os.path.basename(image_path)
             filename = filename.replace('image', 'label')
@@ -77,6 +89,14 @@ class WHSDataset_2D_scale_partSeries(Dataset):
             label = torch.from_numpy(label.astype('float32')).unsqueeze(0).unsqueeze(0)
             label = F.interpolate(label, [224,224])
             label = label.squeeze(0)
+
+            if self.augment:
+                image = TF.affine(image, angle=angle, translate=translate,
+                                  scale=scale, shear=shear,
+                                  interpolation=TF.InterpolationMode.BILINEAR)
+                label = TF.affine(label, angle=angle, translate=translate,
+                                  scale=scale, shear=shear,
+                                  interpolation=TF.InterpolationMode.NEAREST)
 
             image_serial.append(image)
             label_serial.append(label)

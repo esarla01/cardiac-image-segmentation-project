@@ -3,7 +3,7 @@ import logging
 import torch.nn as nn
 import numpy as np
 from skimage import measure
-from torch._utils import _accumulate
+from itertools import accumulate as _accumulate
 from torch import randperm
 from scipy.ndimage import morphology
 

@@ -1,5 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"
 import time, yaml
 import torch
 import copy
@@ -22,7 +21,7 @@ if __name__ == '__main__':
         cfg = yaml.safe_load(f)
 
     NUM_EPOCHS = 60
-    BATCHSIZE = 12 # 8, 12
+    BATCHSIZE = 12
     NUM_WORKERS = 8
     LEARNINGRATE = 0.0001  # 0.0001
 
@@ -38,28 +37,26 @@ if __name__ == '__main__':
     ############################
     # load data
     ###########################
-    image_paths = list()
-    image_paths.append(cfg["WHS_datasets"]["datasets_input_path"][0])
-    image_paths.append(cfg["WHS_datasets"]["datasets_input_path"][2])
-
-    test_paths = list()
-    test_paths.append(cfg["WHS_datasets"]["datasets_input_path"][1])
+    image_paths = cfg["WHS_datasets"]["train_paths"]
+    test_paths  = [cfg["WHS_datasets"]["test_path"]]
 
     crop_d = 18 # 设置序列长度
 
-    train_set = WHSDataset_2D_scale_partSeries(image_multidir=image_paths, crop_d = crop_d)
-    val_set = WHSDataset_2D_scale_partSeries(image_multidir=test_paths, crop_d = crop_d)
+    train_set = WHSDataset_2D_scale_partSeries(image_multidir=image_paths, crop_d=crop_d, augment=True)
+    val_set = WHSDataset_2D_scale_partSeries(image_multidir=test_paths, crop_d=crop_d, augment=False)
 
-    train_loader = DataLoader(dataset=train_set, num_workers=NUM_WORKERS, batch_size=BATCHSIZE, shuffle=True, pin_memory=True)
-    val_loader = DataLoader(dataset=val_set, num_workers=NUM_WORKERS, batch_size=BATCHSIZE, shuffle=False, pin_memory=True)
+    train_loader = DataLoader(dataset=train_set, num_workers=NUM_WORKERS, batch_size=BATCHSIZE, shuffle=True, pin_memory=False)
+    val_loader = DataLoader(dataset=val_set, num_workers=NUM_WORKERS, batch_size=BATCHSIZE, shuffle=False, pin_memory=False)
     ############################
     # load the net
     ###########################
     architecture = cfg["model_2D"][0]
 
-    model_net = ResLSTMUNet(in_channels=1, out_channels=NUM_CLASS, pretrained=PRETRAINED, deep_sup=DEEPSUPERVISION, multiscale_att=MULTISCALEATT)
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"Using device: {device}")
 
-    model_net = torch.nn.DataParallel(model_net).cuda()
+    model_net = ResLSTMUNet(in_channels=1, out_channels=NUM_CLASS, pretrained=PRETRAINED, deep_sup=DEEPSUPERVISION, multiscale_att=MULTISCALEATT)
+    model_net = model_net.to(device)
 
     INIT_MODEL_PATH = os.path.join(cfg["WHS_datasets"]["results_output"]["model_state_dict"], architecture)
 
@@ -68,9 +65,9 @@ if __name__ == '__main__':
     # loss and optimization
     ###########################
     if WCEDCELOSS:
-        criterion = WCEDCELoss(intra_weights=torch.tensor([1., 3., 3., 3., 3., 3., 3., 3.]).cuda(), inter_weights=0.5)
+        criterion = WCEDCELoss(intra_weights=torch.tensor([1., 3., 3., 3., 3., 3., 3., 3.]).to(device), inter_weights=0.5)
     else:
-        criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor([1., 3., 3., 3., 3., 3., 3., 3.]).cuda())
+        criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor([1., 3., 3., 3., 3., 3., 3., 3.]).to(device))
     # construct an optimizer
     optimizer = optim.Adam(model_net.parameters(), lr=LEARNINGRATE, betas=(0.9, 0.999))
     ############################
@@ -99,8 +96,8 @@ if __name__ == '__main__':
         epochresults = {'loss': [], 'dice': [], 'iou': [], 'val_loss': [], 'val_dice': [], 'val_iou': []}
         model_net.train()
         for iteration, (image_serial, label_serial) in enumerate(train_loader):
-            image_serial = [item.cuda() for item in image_serial]
-            label_serial = [item.cuda() for item in label_serial]
+            image_serial = [item.to(device) for item in image_serial]
+            label_serial = [item.to(device) for item in label_serial]
 
             optimizer.zero_grad()
 
@@ -152,8 +149,8 @@ if __name__ == '__main__':
         with torch.no_grad():
             for val_iteration, (val_image_serial, val_label_serial) in enumerate(val_loader):
 
-                val_image_serial = [item.cuda() for item in val_image_serial]
-                val_label_serial = [item.cuda() for item in val_label_serial]
+                val_image_serial = [item.to(device) for item in val_image_serial]
+                val_label_serial = [item.to(device) for item in val_label_serial]
 
                 if DEEPSUPERVISION:
                     val_pred_serial, val_pred1_serial, val_pred2_serial, val_pred3_serial, val_pred4_serial = model_net(
@@ -228,4 +225,4 @@ if __name__ == '__main__':
         data={'loss': results['loss'],
               'val_loss': results['val_loss']},
         index=range(1, NUM_EPOCHS + 1))
-    data_frame.to_csv('statistics/' + architecture + '/train_results.csv', index_label='Epoch')
+    data_frame.to_csv(statistics_path + '/train_results.csv', index_label='Epoch')

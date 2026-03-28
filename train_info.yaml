@@ -1,12 +1,21 @@
-model_2D: 
+model_2D:
   - ResUNet_LSTM
 
-WHS_datasets: 
-  datasets_input_path: #label and image are in the same folder
-    - "/WHS/MultiResNet-SC/datasets_input/MMWHS/ct_train"
-    - "/WHS/MultiResNet-SC/datasets_input/MMWHS/ct_test"
-    - "/WHS/MultiResNet-SC/datasets_input/augmented/MMWHS/ct_train"
+WHS_datasets:
+  # # List of directories used for training (one entry per source)
+  # train_paths:
+  #   - "/Users/erinsarlak/Desktop/MedicalImagingProject/data/converted/ct/train"
 
+  # # Directory used for validation during training
+  # test_path: "/Users/erinsarlak/Desktop/MedicalImagingProject/data/converted/ct/test"
+
+  # results_output:
+  #   statistics: "/Users/erinsarlak/Desktop/MedicalImagingProject/cardiac-image-segmentation-project/output/statistics"
+  #   model_state_dict: "/Users/erinsarlak/Desktop/MedicalImagingProject/cardiac-image-segmentation-project/output/checkpoints"
+
+  train_paths:
+    - "/content/drive/MyDrive/cardiac-project/data/converted/ct/train"
+  test_path: "/content/drive/MyDrive/cardiac-project/data/converted/ct/test"
   results_output:
-    statistics: "/WHS/MultiResNet-SC/statistics"
-    model_state_dict: "/WHS/MultiResNet-SC/output_temp_model_dict"
+    statistics: "/content/drive/MyDrive/cardiac-project/output_aug/statistics"
+    model_state_dict: "/content/drive/MyDrive/cardiac-project/output_aug/checkpoints"
