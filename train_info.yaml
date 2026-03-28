@@ -1,0 +1,12 @@
+model_2D: 
+  - ResUNet_LSTM
+
+WHS_datasets: 
+  datasets_input_path: #label and image are in the same folder
+    - "/WHS/MultiResNet-SC/datasets_input/MMWHS/ct_train"
+    - "/WHS/MultiResNet-SC/datasets_input/MMWHS/ct_test"
+    - "/WHS/MultiResNet-SC/datasets_input/augmented/MMWHS/ct_train"
+
+  results_output:
+    statistics: "/WHS/MultiResNet-SC/statistics"
+    model_state_dict: "/WHS/MultiResNet-SC/output_temp_model_dict"
