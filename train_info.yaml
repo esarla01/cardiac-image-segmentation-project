@@ -2,20 +2,20 @@ model_2D:
   - ResUNet_LSTM
 
 WHS_datasets:
-  # # List of directories used for training (one entry per source)
-  # train_paths:
-  #   - "/Users/erinsarlak/Desktop/MedicalImagingProject/data/converted/ct/train"
+  ct:
+    train_paths:
+      - "/content/drive/MyDrive/cardiac-project//data/converted/ct/train"
+    val_path: "/content/drive/MyDrive/cardiac-project/data/converted/ct/val"
+    test_path: "/content/drive/MyDrive/cardiac-project/data/converted/ct/test"
+    results_output:
+      statistics: "/content/drive/MyDrive/cardiac-project/ct_reslstmunet_run/statistics"
+      model_state_dict: "/content/drive/MyDrive/cardiac-project/ct_reslstmunet_run/checkpoints"
 
-  # # Directory used for validation during training
-  # test_path: "/Users/erinsarlak/Desktop/MedicalImagingProject/data/converted/ct/test"
-
-  # results_output:
-  #   statistics: "/Users/erinsarlak/Desktop/MedicalImagingProject/cardiac-image-segmentation-project/output/statistics"
-  #   model_state_dict: "/Users/erinsarlak/Desktop/MedicalImagingProject/cardiac-image-segmentation-project/output/checkpoints"
-
-  train_paths:
-    - "/content/drive/MyDrive/cardiac-project/data/converted/ct/train"
-  test_path: "/content/drive/MyDrive/cardiac-project/data/converted/ct/test"
-  results_output:
-    statistics: "/content/drive/MyDrive/cardiac-project/output_aug/statistics"
-    model_state_dict: "/content/drive/MyDrive/cardiac-project/output_aug/checkpoints"
+  mr:
+    train_paths:
+      - "/content/drive/MyDrive/cardiac-project/data/converted/mr/train"
+    val_path: "/content/drive/MyDrive/cardiac-project/data/converted/mr/val"
+    test_path: "/content/drive/MyDrive/cardiac-project/data/converted/mr/test"
+    results_output:
+      statistics: "/content/drive/MyDrive/cardiac-project/mr_reslstmunet_run/statistics"
+      model_state_dict: "/content/drive/MyDrive/cardiac-project/mr_reslstmunet_run/checkpoints"

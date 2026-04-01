@@ -68,7 +68,7 @@ class WHSDataset_2D_scale_partSeries(Dataset):
         # Sample augmentation parameters once per sequence so all slices
         # receive the same spatial transform (required for LSTM consistency)
         if self.augment:
-            angle     = random.uniform(-20, 20)
+            angle     = random.uniform(-15, 15)
             translate = [random.uniform(-0.1, 0.1) * 224,
                          random.uniform(-0.1, 0.1) * 224]
             scale     = random.uniform(1 / 1.2, 1.2)

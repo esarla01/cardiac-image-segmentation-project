@@ -1,4 +1,5 @@
 import os
+import argparse
 import time, yaml
 import torch
 import copy
@@ -16,9 +17,15 @@ if __name__ == '__main__':
     ############################
     # Parameters
     ############################
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", type=str, choices=["CT", "MR"], required=True, help="Training modality: CT or MR")
+    args = parser.parse_args()
+
     CFG_FILE = "train_info.yaml"
     with open(CFG_FILE, "r") as f:
         cfg = yaml.safe_load(f)
+
+    MODE = args.mode
 
     NUM_EPOCHS = 60
     BATCHSIZE = 12
@@ -37,13 +44,14 @@ if __name__ == '__main__':
     ############################
     # load data
     ###########################
-    image_paths = cfg["WHS_datasets"]["train_paths"]
-    test_paths  = [cfg["WHS_datasets"]["test_path"]]
+    dataset_cfg = cfg["WHS_datasets"][MODE.lower()]
+    image_paths = dataset_cfg["train_paths"]
+    val_paths   = [dataset_cfg["val_path"]]
 
     crop_d = 18 # 设置序列长度
 
     train_set = WHSDataset_2D_scale_partSeries(image_multidir=image_paths, crop_d=crop_d, augment=True)
-    val_set = WHSDataset_2D_scale_partSeries(image_multidir=test_paths, crop_d=crop_d, augment=False)
+    val_set = WHSDataset_2D_scale_partSeries(image_multidir=val_paths, crop_d=crop_d, augment=False)
 
     train_loader = DataLoader(dataset=train_set, num_workers=NUM_WORKERS, batch_size=BATCHSIZE, shuffle=True, pin_memory=False)
     val_loader = DataLoader(dataset=val_set, num_workers=NUM_WORKERS, batch_size=BATCHSIZE, shuffle=False, pin_memory=False)
@@ -58,7 +66,7 @@ if __name__ == '__main__':
     model_net = ResLSTMUNet(in_channels=1, out_channels=NUM_CLASS, pretrained=PRETRAINED, deep_sup=DEEPSUPERVISION, multiscale_att=MULTISCALEATT)
     model_net = model_net.to(device)
 
-    INIT_MODEL_PATH = os.path.join(cfg["WHS_datasets"]["results_output"]["model_state_dict"], architecture)
+    INIT_MODEL_PATH = os.path.join(dataset_cfg["results_output"]["model_state_dict"], architecture)
 
     print('#parameters:', sum(param.numel() for param in model_net.parameters()))
     ############################
@@ -81,11 +89,11 @@ if __name__ == '__main__':
     best_epoch = 0
 
     since = time.time()
-    model_dict_temp_save_path = os.path.join(cfg["WHS_datasets"]["results_output"]["model_state_dict"], architecture)
+    model_dict_temp_save_path = os.path.join(dataset_cfg["results_output"]["model_state_dict"], architecture)
     if not os.path.exists(model_dict_temp_save_path):
         os.makedirs(model_dict_temp_save_path)
 
-    statistics_path = os.path.join(cfg["WHS_datasets"]["results_output"]["statistics"], architecture)
+    statistics_path = os.path.join(dataset_cfg["results_output"]["statistics"], architecture)
     if not os.path.exists(statistics_path):
         os.makedirs(statistics_path)
     logger = logger(statistics_path + '/train_' + architecture + '.log')
@@ -136,7 +144,7 @@ if __name__ == '__main__':
 
             loss.backward()
             optimizer.step()
-            if iteration % int(len(train_loader)/5) == 0:
+            if iteration % max(1, int(len(train_loader)/5)) == 0:
                 logger.info("Train: Epoch/Epoches {}/{}\t"
                             "iteration/iterations {}/{}\t"
                             "loss {:.3f}".format(epoch, NUM_EPOCHS, iteration, len(train_loader), loss.item()))
@@ -190,7 +198,7 @@ if __name__ == '__main__':
                         val_loss += criterion(val_pred, val_label.squeeze(1).long())
                     val_loss /= val_temporal
 
-                if val_iteration % int(len(val_loader)/5) == 0:
+                if val_iteration % max(1, int(len(val_loader)/5)) == 0:
                     logger.info("Val: Epoch/Epoches {}/{}\t"
                                 "iteration/iterations {}/{}\t"
                                 "val loss {:.3f}".format(epoch, NUM_EPOCHS, val_iteration, len(val_loader), val_loss.item()))
@@ -207,7 +215,7 @@ if __name__ == '__main__':
             best_model_wts = copy.deepcopy(model_net)
             best_epoch = epoch
 
-        if epoch % model_freq == 0 or epoch == NUM_EPOCHS:
+        if epoch % model_freq == 0 or epoch == NUM_EPOCHS or epoch > NUM_EPOCHS - 25:
             torch.save(model_net.state_dict(), model_dict_temp_save_path + '/' + architecture + '_' + 'epoch_%d.pth' % epoch)
 
     torch.save(best_model_wts.state_dict(), statistics_path + '/' + architecture + '_best_epoch_%d.pth' % best_epoch)

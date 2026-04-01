@@ -24,8 +24,9 @@ class SELayer(nn.Module):
 
 
 class MultiscaleAttConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, dropout_p=0.0):
         super(MultiscaleAttConvBlock, self).__init__()
+        self.dropout = nn.Dropout2d(p=dropout_p)
 
         self.conv30 = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
@@ -54,6 +55,7 @@ class MultiscaleAttConvBlock(nn.Module):
         x4 = self.selayer(x3)
         x_shortcut = self.conv11(x)
         x = x4 + x_shortcut
+        x = self.dropout(x)
         # x = x3 + x_shortcut
         return  x
 
@@ -73,16 +75,18 @@ class TransConv(nn.Module):
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, dropout_p=0.0):
         super(ConvBlock, self).__init__()
 
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
+            nn.Dropout2d(p=dropout_p),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True))
+            nn.ReLU(inplace=True),
+            nn.Dropout2d(p=dropout_p))
 
     def forward(self, x):
         x = self.conv(x)
@@ -90,7 +94,7 @@ class ConvBlock(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, out_channels, multiscale_att=False):
+    def __init__(self, out_channels, multiscale_att=False, dropout_p=0.0):
         super(Decoder, self).__init__()
 
         self.transconv4 = TransConv(512, 256)
@@ -100,18 +104,18 @@ class Decoder(nn.Module):
         self.transconv0 = TransConv(64, 32)
 
         if multiscale_att:
-            self.decoder_layer4 = MultiscaleAttConvBlock(512, 256)
-            self.decoder_layer3 = MultiscaleAttConvBlock(256, 128)
-            self.decoder_layer2 = MultiscaleAttConvBlock(128, 64)
-            self.decoder_layer1 = MultiscaleAttConvBlock(128, 64)
-            self.decoder_layer0 = MultiscaleAttConvBlock(32, 16)
+            self.decoder_layer4 = MultiscaleAttConvBlock(512, 256, dropout_p=dropout_p)
+            self.decoder_layer3 = MultiscaleAttConvBlock(256, 128, dropout_p=dropout_p)
+            self.decoder_layer2 = MultiscaleAttConvBlock(128, 64, dropout_p=dropout_p)
+            self.decoder_layer1 = MultiscaleAttConvBlock(128, 64, dropout_p=dropout_p)
+            self.decoder_layer0 = MultiscaleAttConvBlock(32, 16, dropout_p=dropout_p)
 
         else:
-            self.decoder_layer4 = ConvBlock(512, 256)
-            self.decoder_layer3 = ConvBlock(256, 128)
-            self.decoder_layer2 = ConvBlock(128, 64)
-            self.decoder_layer1 = ConvBlock(128, 64)
-            self.decoder_layer0 = ConvBlock(32, 16)
+            self.decoder_layer4 = ConvBlock(512, 256, dropout_p=dropout_p)
+            self.decoder_layer3 = ConvBlock(256, 128, dropout_p=dropout_p)
+            self.decoder_layer2 = ConvBlock(128, 64, dropout_p=dropout_p)
+            self.decoder_layer1 = ConvBlock(128, 64, dropout_p=dropout_p)
+            self.decoder_layer0 = ConvBlock(32, 16, dropout_p=dropout_p)
 
 
         self.output_layer0 = nn.Conv2d(16, out_channels, kernel_size=1)
@@ -164,11 +168,11 @@ class Decoder(nn.Module):
         return out, out1, out2, out3, out4
 
 class ResLSTMUNet(nn.Module):
-    def __init__(self, in_channels=1, out_channels=1, pretrained=False, deep_sup=False, multiscale_att=False):
+    def __init__(self, in_channels=1, out_channels=1, pretrained=False, deep_sup=False, multiscale_att=False, dropout_p=0.0):
         super(ResLSTMUNet, self).__init__()
 
         self.encoder = resnet18(pretrained=pretrained)
-        self.decoder = Decoder(out_channels=out_channels, multiscale_att=multiscale_att)
+        self.decoder = Decoder(out_channels=out_channels, multiscale_att=multiscale_att, dropout_p=dropout_p)
         self.deep_sup = deep_sup
         self.clstsm0 = CLSTM(64, 64)
         self.clstsm1 = CLSTM(64, 64)
