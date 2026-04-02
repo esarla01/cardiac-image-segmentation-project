@@ -1,11 +1,11 @@
 """
-Visualise ensemble prediction + epistemic uncertainty map for a single patient.
+Visualise Ensemble+TTA prediction + predictive uncertainty map for a single patient.
 
 Produces a figure with four columns per selected slice:
   Col 0 – CT/MR image
   Col 1 – Ground truth
-  Col 2 – Ensemble prediction (mean logits across N checkpoints)
-  Col 3 – Epistemic uncertainty map (sum of per-class variance across checkpoints)
+  Col 2 – Ensemble+TTA prediction (mean softmax probs across all checkpoint × augmentation combinations)
+  Col 3 – Predictive uncertainty map (sum of per-class variance across all combinations)
 
 The uncertainty colormap is normalised globally across all slices of the patient
 so that colour values are directly comparable across rows.
@@ -39,6 +39,7 @@ import torch
 import torch.nn.functional as F
 
 from models.reslstmunet import ResLSTMUNet
+from uncertainty import ensemble_tta_predict
 
 NUM_CLASS  = 8
 CLASS_NAMES = [
@@ -103,21 +104,21 @@ def load_patient_slices(patient_dir):
 
 
 # ---------------------------------------------------------------------------
-# Ensemble inference — returns predictions and per-voxel uncertainty
+# Ensemble+TTA inference — returns predictions and per-voxel uncertainty
 # ---------------------------------------------------------------------------
 
-def predict_ensemble(models, images, device, crop_d=18):
+def predict_ensemble(models, images, device, crop_d=18, n_tta=None):
     """
-    Sliding-window ensemble inference over all slices of a patient.
+    Sliding-window Ensemble+TTA inference over all slices of a patient.
 
-    For each window, runs all N models and computes:
+    For each window, runs all N models × all TTA transforms and computes:
       - mean prediction  : argmax of mean softmax probabilities
-      - uncertainty map  : sum of per-class variance across checkpoints
-                           (epistemic uncertainty, one scalar per voxel)
+      - uncertainty map  : sum of per-class variance across all
+                           (checkpoint × augmentation) combinations
 
     Returns:
         preds : (N_slices, 224, 224) int   — predicted class index
-        unc   : (N_slices, 224, 224) float — epistemic uncertainty
+        unc   : (N_slices, 224, 224) float — predictive uncertainty
     """
     n = len(images)
     preds    = [None] * n
@@ -135,37 +136,22 @@ def predict_ensemble(models, images, device, crop_d=18):
             start += stride
         windows.append((n - crop_d, list(range(n - crop_d, n))))
 
-    with torch.no_grad():
-        for _, indices in windows:
-            # Build input sequence
-            seq = []
-            for i in indices:
-                img = torch.from_numpy(images[i].astype("float32")).unsqueeze(0).unsqueeze(0)
-                img = F.interpolate(img, [224, 224], mode="bilinear", align_corners=False)
-                seq.append(img.to(device))
+    for _, indices in windows:
+        # Build input sequence
+        seq = []
+        for i in indices:
+            img = torch.from_numpy(images[i].astype("float32")).unsqueeze(0).unsqueeze(0)
+            img = F.interpolate(img, [224, 224], mode="bilinear", align_corners=False)
+            seq.append(img.to(device))
 
-            # Collect softmax probs from each checkpoint: (N_models, T, 1, C, H, W)
-            all_probs = []
-            for model in models:
-                pred_serial, *_ = model(seq)
-                # pred_serial: list of T tensors (1, C, H, W) — raw logits
-                probs = torch.stack(
-                    [torch.softmax(p, dim=1) for p in pred_serial], dim=0
-                )  # (T, 1, C, H, W)
-                all_probs.append(probs)
+        mean_probs_t, unc_t = ensemble_tta_predict(models, seq, n_transforms=n_tta)
+        # mean_probs_t: list of T tensors (1, C, H, W)
+        # unc_t:        list of T tensors (1, H, W)
 
-            all_probs = torch.stack(all_probs, dim=0)  # (N_models, T, 1, C, H, W)
-
-            # Mean prediction across checkpoints
-            mean_probs = all_probs.mean(dim=0)         # (T, 1, C, H, W)
-
-            # Epistemic uncertainty: sum of per-class variance across checkpoints
-            unc_t = all_probs.var(dim=0).sum(dim=2)    # (T, 1, H, W)
-
-            for t, real_idx in enumerate(indices):
-                if real_idx < n:
-                    preds[real_idx]    = mean_probs[t, 0].argmax(dim=0).cpu().numpy()
-                    unc_maps[real_idx] = unc_t[t, 0].cpu().numpy()
+        for t, real_idx in enumerate(indices):
+            if real_idx < n:
+                preds[real_idx]    = mean_probs_t[t][0].argmax(dim=0).cpu().numpy()
+                unc_maps[real_idx] = unc_t[t][0].cpu().numpy()
 
     return np.stack(preds), np.stack(unc_maps)
 
@@ -185,7 +171,7 @@ def select_slices(labels, n_slices):
 # ---------------------------------------------------------------------------
 
 def visualize(patient_dir, ckpt_dir, n_ckpts, out_dir, n_slices, crop_d,
-              modality, device):
+              modality, device, n_tta=None):
     os.makedirs(out_dir, exist_ok=True)
     patient_id = os.path.basename(patient_dir)
 
@@ -197,8 +183,8 @@ def visualize(patient_dir, ckpt_dir, n_ckpts, out_dir, n_slices, crop_d,
     print(f"Loading {len(ckpt_paths)} checkpoints ...")
     models = [load_model(p, device) for p in ckpt_paths]
 
-    print("Running ensemble inference ...")
-    preds, unc_maps = predict_ensemble(models, images, device, crop_d)
+    print("Running ensemble+TTA inference ...")
+    preds, unc_maps = predict_ensemble(models, images, device, crop_d, n_tta=n_tta)
 
     chosen = select_slices(labels, n_slices)
     print(f"Visualising slices: {chosen}")
@@ -211,7 +197,7 @@ def visualize(patient_dir, ckpt_dir, n_ckpts, out_dir, n_slices, crop_d,
     if n_slices == 1:
         axes = axes[np.newaxis, :]
 
-    col_titles = ["Image", "Ground truth", "Ensemble prediction", "Uncertainty (epistemic)"]
+    col_titles = ["Image", "Ground truth", "Ensemble+TTA prediction", "Uncertainty (predictive)"]
     for col, title in enumerate(col_titles):
         axes[0, col].set_title(title, fontsize=10, fontweight="bold")
 
@@ -232,7 +218,7 @@ def visualize(patient_dir, ckpt_dir, n_ckpts, out_dir, n_slices, crop_d,
         axes[row, 1].imshow(lbl_224, cmap=CMAP, vmin=0,
                             vmax=NUM_CLASS - 1, interpolation="nearest")
 
-        # Col 2 — ensemble prediction
+        # Col 2 — ensemble+TTA prediction
         axes[row, 2].imshow(preds[idx], cmap=CMAP, vmin=0,
                             vmax=NUM_CLASS - 1, interpolation="nearest")
 
@@ -250,7 +236,7 @@ def visualize(patient_dir, ckpt_dir, n_ckpts, out_dir, n_slices, crop_d,
 
     # Shared colorbar for uncertainty column
     cbar_ax = fig.add_axes([0.76, 0.05, 0.01, 0.88])
-    fig.colorbar(im_unc, cax=cbar_ax, label="Epistemic uncertainty")
+    fig.colorbar(im_unc, cax=cbar_ax, label="Predictive uncertainty")
 
     # Legend for segmentation classes
     patches = [mpatches.Patch(color=COLOURS[c], label=CLASS_NAMES[c])
@@ -258,9 +244,10 @@ def visualize(patient_dir, ckpt_dir, n_ckpts, out_dir, n_slices, crop_d,
     fig.legend(handles=patches, loc="lower center", ncol=4,
                bbox_to_anchor=(0.38, -0.01), fontsize=8)
 
+    n_tta_display = n_tta if n_tta is not None else 8
     fig.suptitle(
-        f"{modality.upper()} patient {patient_id} — Ensemble prediction & epistemic uncertainty "
-        f"({len(ckpt_paths)} checkpoints)",
+        f"{modality.upper()} patient {patient_id} — Ensemble+TTA prediction & predictive uncertainty "
+        f"({len(ckpt_paths)} checkpoints × {n_tta_display + 1} transforms)",
         fontsize=12, y=1.01
     )
     plt.tight_layout(rect=[0, 0, 0.75, 1])
@@ -277,7 +264,7 @@ def visualize(patient_dir, ckpt_dir, n_ckpts, out_dir, n_slices, crop_d,
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Visualise ensemble prediction + epistemic uncertainty map")
+        description="Visualise Ensemble+TTA prediction + predictive uncertainty map")
     parser.add_argument("--ckpt_dir",    required=True,
                         help="Directory with epoch_*.pth ensemble checkpoints")
     parser.add_argument("--patient_dir", required=True,
@@ -286,6 +273,8 @@ def main():
     parser.add_argument("--n_slices",    type=int, default=6)
     parser.add_argument("--n_ckpts",     type=int, default=10)
     parser.add_argument("--crop_d",      type=int, default=18)
+    parser.add_argument("--n_tta",       type=int, default=None,
+                        help="TTA transforms per checkpoint (default: all 8)")
     parser.add_argument("--modality",    default="ct", choices=["ct", "mr"])
     args = parser.parse_args()
 
@@ -294,7 +283,8 @@ def main():
     print(f"Using device: {device}")
 
     visualize(args.patient_dir, args.ckpt_dir, args.n_ckpts,
-              args.out_dir, args.n_slices, args.crop_d, args.modality, device)
+              args.out_dir, args.n_slices, args.crop_d, args.modality, device,
+              n_tta=args.n_tta)
 
 
 if __name__ == "__main__":
